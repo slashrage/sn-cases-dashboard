@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ServiceNow Cases Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e6eb;
+    --text-muted: #8b8fa3;
+    --accent: #4f8cff;
+    --accent2: #7c5cfc;
+    --green: #34d399;
+    --orange: #fb923c;
+    --red: #f87171;
+    --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* Upload screen */
+  .upload-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 40px;
+  }
+  .upload-screen h1 {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .upload-screen .sub { color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
+  .drop-zone {
+    width: 480px;
+    max-width: 90vw;
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: var(--card);
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(79,140,255,0.05);
+  }
+  .drop-zone .icon { font-size: 48px; margin-bottom: 12px; }
+  .drop-zone .label { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .drop-zone .hint { color: var(--text-muted); font-size: 13px; }
+  .drop-zone input { display: none; }
+  .expected-cols {
+    margin-top: 20px;
+    color: var(--text-muted);
+    font-size: 12px;
+    max-width: 480px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  /* Dashboard */
+  .dashboard { display: none; padding: 24px; }
+  .dashboard.active { display: block; }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header .subtitle { color: var(--text-muted); font-size: 13px; }
+  .header-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .btn:hover { border-color: var(--accent); background: rgba(79,140,255,0.08); }
+  .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-accent:hover { background: #3d7ae6; }
+
+  .filters {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .filters select {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .filters select:hover, .filters select:focus { border-color: var(--accent); }
+
+  /* Multi-select dropdown */
+  .multi-select {
+    position: relative;
+    min-width: 160px;
+  }
+  .multi-select .ms-trigger {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 30px 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+    position: relative;
+  }
+  .multi-select .ms-trigger::after {
+    content: '\25BC';
+    font-size: 9px;
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+  }
+  .multi-select .ms-trigger:hover, .multi-select.open .ms-trigger {
+    border-color: var(--accent);
+  }
+  .multi-select .ms-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    padding: 4px 0;
+  }
+  .multi-select.open .ms-dropdown { display: block; }
+  .multi-select .ms-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: var(--text);
+  }
+  .multi-select .ms-option:hover { background: rgba(79,140,255,0.08); }
+  .multi-select .ms-option.selected { background: rgba(79,140,255,0.12); }
+  .multi-select .ms-option .ms-check {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .multi-select .ms-option.selected .ms-check {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .multi-select .ms-option.selected .ms-check::after {
+    content: '\2713';
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .multi-select .ms-actions {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .multi-select .ms-actions button {
+    flex: 1;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .multi-select .ms-actions button:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .ms-chip-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .ms-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(79,140,255,0.12);
+    color: var(--accent);
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .ms-chip .ms-chip-x {
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+  .ms-chip .ms-chip-x:hover { opacity: 1; }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: var(--card);
+    border-radius: 10px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+  .tab {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--accent); color: #fff; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    text-align: center;
+  }
+  .kpi-card .value { font-size: 30px; font-weight: 800; line-height: 1.1; }
+  .kpi-card .label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .kpi-card:nth-child(1) .value { color: var(--accent); }
+  .kpi-card:nth-child(2) .value { color: var(--orange); }
+  .kpi-card:nth-child(3) .value { color: var(--green); }
+  .kpi-card:nth-child(4) .value { color: var(--yellow); }
+  .kpi-card:nth-child(5) .value { color: var(--accent2); }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 18px;
+    margin-bottom: 24px;
+  }
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .chart-card canvas { max-height: 300px; }
+  .chart-card.wide { grid-column: 1 / -1; }
+
+  .table-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    overflow-x: auto;
+  }
+  .table-card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tr:hover td { background: rgba(79,140,255,0.05); }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .badge-urgent { background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-high { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .badge-normal { background: rgba(79,140,255,0.15); color: var(--accent); }
+  .badge-low { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-new { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .badge-open { background: rgba(79,140,255,0.15); color: var(--accent); }
+  .badge-awaiting { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .badge-resolved { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-closed { background: rgba(139,143,163,0.15); color: var(--text-muted); }
+
+  .footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 900px) {
+    .charts-grid { grid-template-columns: 1fr; }
+    .dashboard { padding: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- UPLOAD SCREEN -->
+<div class="upload-screen" id="uploadScreen">
+  <h1>ServiceNow Cases Dashboard</h1>
+  <p class="sub">Load your case data from a CSV file to get started</p>
+  <div class="drop-zone" id="dropZone">
+    <div class="icon">📂</div>
+    <div class="label">Drop CSV file here or click to browse</div>
+    <div class="hint">Supports .csv files exported from ServiceNow</div>
+    <input type="file" id="fileInput" accept=".csv">
+  </div>
+  <div class="expected-cols">
+    <strong>Expected columns:</strong> opened_at, number, contact, sys_created_by, priority, u_user_role, product, short_description, state, first_response_time, resolved_at, assignment_group<br>
+    <span style="color:var(--text-muted);font-size:11px;">Also accepts: Opened, Number, Contact, Created by, Priority, User Role, Product, Short description, State, First Response Time, Resolved, Assignment group</span>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="dashboard" id="dashboard">
+  <div class="header">
+    <div>
+      <h1>ServiceNow Customer Service Cases</h1>
+      <div class="subtitle" id="dashSubtitle">Interactive dashboard</div>
+    </div>
+    <div class="header-actions">
+      <div class="filters">
+        <div class="multi-select" id="msPriority">
+          <div class="ms-trigger">All Priorities</div>
+          <div class="ms-dropdown"></div>
+        </div>
+        <div class="multi-select" id="msState">
+          <div class="ms-trigger">All States</div>
+          <div class="ms-dropdown"></div>
+        </div>
+        <div class="multi-select" id="msProduct">
+          <div class="ms-trigger">All Products</div>
+          <div class="ms-dropdown"></div>
+        </div>
+        <div class="multi-select" id="msGroup">
+          <div class="ms-trigger">All Groups</div>
+          <div class="ms-dropdown"></div>
+        </div>
+        <div class="multi-select" id="msMonth">
+          <div class="ms-trigger">All Months</div>
+          <div class="ms-dropdown"></div>
+        </div>
+      </div>
+      <button class="btn" id="btnLoadNew">📂 Load New CSV</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="monthly">Monthly Breakdown</div>
+    <div class="tab" data-tab="cases">All Cases</div>
+  </div>
+
+  <!-- TAB: OVERVIEW -->
+  <div class="tab-content active" id="tab-overview">
+    <div class="kpi-row">
+      <div class="kpi-card"><div class="value" id="kpiTotal">&mdash;</div><div class="label">Total Cases</div></div>
+      <div class="kpi-card"><div class="value" id="kpiOpen">&mdash;</div><div class="label">Open Cases</div></div>
+      <div class="kpi-card"><div class="value" id="kpiClosed">&mdash;</div><div class="label">Closed / Resolved</div></div>
+      <div class="kpi-card"><div class="value" id="kpiResponse">&mdash;</div><div class="label">Avg First Response (hrs)</div></div>
+      <div class="kpi-card"><div class="value" id="kpiResolution">&mdash;</div><div class="label">Avg Resolution (days)</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Cases by State</h3><canvas id="chartState"></canvas></div>
+      <div class="chart-card"><h3>Cases by Priority</h3><canvas id="chartPriority"></canvas></div>
+      <div class="chart-card"><h3>Cases by Product</h3><canvas id="chartProduct"></canvas></div>
+      <div class="chart-card"><h3>Cases by Assignment Group</h3><canvas id="chartGroup"></canvas></div>
+      <div class="chart-card wide"><h3>Monthly Case Volume</h3><canvas id="chartTrend"></canvas></div>
+      <div class="chart-card"><h3>Avg First Response by Priority (hrs)</h3><canvas id="chartResponseTime"></canvas></div>
+      <div class="chart-card"><h3>Top Contacts by Case Count</h3><canvas id="chartContacts"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TAB: MONTHLY BREAKDOWN -->
+  <div class="tab-content" id="tab-monthly">
+    <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span id="monthCaseCount" style="color:var(--text-muted);font-size:13px;">Use the "All Months" filter above to select specific months</span>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi-card"><div class="value" id="mKpiTotal">&mdash;</div><div class="label">Cases This Month</div></div>
+      <div class="kpi-card"><div class="value" id="mKpiOpen">&mdash;</div><div class="label">Open</div></div>
+      <div class="kpi-card"><div class="value" id="mKpiClosed">&mdash;</div><div class="label">Closed / Resolved</div></div>
+      <div class="kpi-card"><div class="value" id="mKpiResponse">&mdash;</div><div class="label">Avg First Response (hrs)</div></div>
+      <div class="kpi-card"><div class="value" id="mKpiResolution">&mdash;</div><div class="label">Avg Resolution (days)</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Tickets by Month</h3><canvas id="chartMonthlyTickets"></canvas></div>
+      <div class="chart-card"><h3>Priority Distribution This Month</h3><canvas id="chartMonthlyPriority"></canvas></div>
+      <div class="chart-card"><h3>Avg Time to First Response by Month (hrs)</h3><canvas id="chartMonthlyFirstResponse"></canvas></div>
+      <div class="chart-card"><h3>Avg Time to Resolution by Month (days)</h3><canvas id="chartMonthlyResolution"></canvas></div>
+      <div class="chart-card wide"><h3>Priority Distribution by Month</h3><canvas id="chartPriorityByMonth"></canvas></div>
+    </div>
+    <div class="table-card">
+      <h3 id="monthTableTitle">Cases This Month</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Number</th><th>Opened</th><th>Contact</th><th>Priority</th>
+            <th>State</th><th>Product</th><th>First Response (hrs)</th><th>Resolution (days)</th><th>Description</th>
+          </tr>
+        </thead>
+        <tbody id="monthCaseTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB: ALL CASES -->
+  <div class="tab-content" id="tab-cases">
+    <div class="table-card">
+      <h3>All Cases (<span id="caseCountLabel">0</span>)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Number</th><th>Opened</th><th>Contact</th><th>Priority</th>
+            <th>State</th><th>Product</th><th>Assignment Group</th><th>Description</th>
+          </tr>
+        </thead>
+        <tbody id="caseTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">Self-contained dashboard &bull; Data loaded from CSV &bull; No server required</div>
+</div>
+
+<script>
+// ===== GLOBALS =====
+var allCases = [];
+var charts = {};
+
+var COLORS = {
+  blue: '#4f8cff', purple: '#7c5cfc', green: '#34d399', orange: '#fb923c',
+  red: '#f87171', yellow: '#fbbf24', pink: '#f472b6', cyan: '#22d3ee',
+  lime: '#a3e635', indigo: '#818cf8', teal: '#2dd4bf', rose: '#fb7185', sky: '#38bdf8'
+};
+var PALETTE = Object.values(COLORS);
+var PRIO_ORDER = ['1 - Urgent', '2 - High', '3 - Normal', '4 - Low'];
+var PRIO_COLORS = { '1 - Urgent': COLORS.red, '2 - High': COLORS.orange, '3 - Normal': COLORS.blue, '4 - Low': COLORS.green };
+var STATE_COLORS = { 'New': COLORS.yellow, 'Open': COLORS.blue, 'Awaiting Info': COLORS.orange, 'Resolved': COLORS.green, 'Closed': '#6b7280' };
+
+// ===== FILE UPLOAD =====
+var dropZone = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', function() { fileInput.click(); });
+dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', function() { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+document.getElementById('btnLoadNew').addEventListener('click', function() {
+  document.getElementById('dashboard').classList.remove('active');
+  document.getElementById('uploadScreen').style.display = 'flex';
+  fileInput.value = '';
+});
+
+function handleFile(file) {
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    alert('Please select a CSV file.');
+    return;
+  }
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+      processData(results.data, file.name);
+    },
+    error: function(err) {
+      alert('Error reading CSV: ' + err.message);
+    }
+  });
+}
+
+function col(r, names) {
+  // Try each candidate column name, return first non-empty match
+  for (var i = 0; i < names.length; i++) {
+    var v = r[names[i]];
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return null;
+}
+
+function parseDate(val) {
+  if (!val) return null;
+  val = String(val).trim();
+  if (!val) return null;
+  // Handle MM-DD-YYYY HH:MM:SS format
+  var m = val.match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (m) {
+    var d = new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]), parseInt(m[4]), parseInt(m[5]), parseInt(m[6]));
+    return isNaN(d) ? null : d;
+  }
+  // Fallback: standard Date parsing (ISO, etc.)
+  var d2 = new Date(val);
+  return isNaN(d2) ? null : d2;
+}
+
+function processData(rows, filename) {
+  allCases = rows.map(function(r) {
+    var opened = parseDate(col(r, ['Opened', 'opened_at']));
+    var resolved = parseDate(col(r, ['Resolved', 'resolved_at']));
+    var firstResp = parseDate(col(r, ['First Response Time', 'first_response_time']));
+    var respHours = (opened && firstResp) ? (firstResp - opened) / 3600000 : null;
+    var resDays = (opened && resolved) ? (resolved - opened) / 86400000 : null;
+    var month = opened ? opened.toISOString().slice(0, 7) : null;
+    return {
+      Opened: opened ? opened.toISOString() : null,
+      Number: col(r, ['Number', 'number']) || '',
+      Contact: col(r, ['Contact', 'contact']) || null,
+      'Created by': col(r, ['Created by', 'sys_created_by']) || '',
+      Priority: col(r, ['Priority', 'priority']) || 'Unknown',
+      'User Role': col(r, ['User Role', 'u_user_role']) || null,
+      Product: col(r, ['Product', 'product']) || null,
+      'Short description': col(r, ['Short description', 'short_description']) || '',
+      State: col(r, ['State', 'state']) || 'Unknown',
+      'First Response Time': firstResp ? firstResp.toISOString() : null,
+      Resolved: resolved ? resolved.toISOString() : null,
+      'Assignment group': col(r, ['Assignment group', 'assignment_group']) || 'Unassigned',
+      response_hours: respHours,
+      resolution_days: resDays,
+      month: month
+    };
+  });
+
+  document.getElementById('dashSubtitle').textContent = 'Loaded ' + allCases.length + ' cases from ' + filename;
+  document.getElementById('uploadScreen').style.display = 'none';
+  document.getElementById('dashboard').classList.add('active');
+
+  populateFilters();
+  populateMonthSelect();
+  renderOverview();
+  renderMonthly();
+  renderCaseTable();
+}
+
+// ===== HELPERS =====
+function priorityBadge(p) {
+  if (p.includes('Urgent')) return '<span class="badge badge-urgent">' + p + '</span>';
+  if (p.includes('High')) return '<span class="badge badge-high">' + p + '</span>';
+  if (p.includes('Normal')) return '<span class="badge badge-normal">' + p + '</span>';
+  return '<span class="badge badge-low">' + p + '</span>';
+}
+function stateBadge(s) {
+  var cls = s === 'New' ? 'new' : s === 'Open' ? 'open' : s === 'Awaiting Info' ? 'awaiting' : s === 'Resolved' ? 'resolved' : 'closed';
+  return '<span class="badge badge-' + cls + '">' + s + '</span>';
+}
+function fmtDate(d) {
+  if (!d) return '\u2014';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '\u2026' : (s || '\u2014'); }
+function fmtMonth(m) {
+  if (!m) return '';
+  var parts = m.split('-');
+  var names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return names[parseInt(parts[1]) - 1] + ' ' + parts[0];
+}
+
+function makeChart(id, type, labels, datasets, extra) {
+  extra = extra || {};
+  var ctx = document.getElementById(id);
+  if (charts[id]) charts[id].destroy();
+  var baseOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: '#8b8fa3', font: { size: 11 } } } }
+  };
+  var scales = (type === 'doughnut' || type === 'pie') ? undefined : Object.assign({
+    x: { ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
+    y: { ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' }, beginAtZero: true }
+  }, extra.scales || {});
+  charts[id] = new Chart(ctx, {
+    type: type,
+    data: { labels: labels, datasets: datasets },
+    options: Object.assign({}, baseOpts, extra, { scales: scales })
+  });
+}
+
+// ===== MULTI-SELECT COMPONENT =====
+function createMultiSelect(containerId, allLabel, onChange, labelFn) {
+  var container = document.getElementById(containerId);
+  var trigger = container.querySelector('.ms-trigger');
+  var dropdown = container.querySelector('.ms-dropdown');
+  var selected = [];
+  var options = [];
+  var formatLabel = labelFn || function(v) { return v; };
+
+  trigger.addEventListener('click', function(e) {
+    e.stopPropagation();
+    // Close other multi-selects
+    document.querySelectorAll('.multi-select.open').forEach(function(ms) {
+      if (ms !== container) ms.classList.remove('open');
+    });
+    container.classList.toggle('open');
+  });
+
+  function render() {
+    dropdown.innerHTML = '';
+    options.forEach(function(opt) {
+      var div = document.createElement('div');
+      div.className = 'ms-option' + (selected.indexOf(opt) >= 0 ? ' selected' : '');
+      div.innerHTML = '<div class="ms-check"></div><span>' + formatLabel(opt) + '</span>';
+      div.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var idx = selected.indexOf(opt);
+        if (idx >= 0) { selected.splice(idx, 1); } else { selected.push(opt); }
+        render();
+        onChange();
+      });
+      dropdown.appendChild(div);
+    });
+    // Actions row
+    var actions = document.createElement('div');
+    actions.className = 'ms-actions';
+    var btnAll = document.createElement('button');
+    btnAll.textContent = 'Select All';
+    btnAll.addEventListener('click', function(e) { e.stopPropagation(); selected = options.slice(); render(); onChange(); });
+    var btnClear = document.createElement('button');
+    btnClear.textContent = 'Clear';
+    btnClear.addEventListener('click', function(e) { e.stopPropagation(); selected = []; render(); onChange(); });
+    actions.appendChild(btnAll);
+    actions.appendChild(btnClear);
+    dropdown.appendChild(actions);
+
+    // Update trigger text
+    if (selected.length === 0 || selected.length === options.length) {
+      trigger.textContent = allLabel;
+    } else if (selected.length === 1) {
+      trigger.textContent = formatLabel(selected[0]);
+    } else {
+      trigger.textContent = selected.length + ' selected';
+    }
+  }
+
+  return {
+    setOptions: function(opts) { options = opts; selected = []; render(); },
+    getSelected: function() { return selected.length === 0 || selected.length === options.length ? [] : selected.slice(); },
+    getAllOptions: function() { return options.slice(); },
+    setSelected: function(vals) { selected = vals.filter(function(v) { return options.indexOf(v) >= 0; }); render(); },
+    render: render
+  };
+}
+
+// Close multi-selects on outside click
+document.addEventListener('click', function() {
+  document.querySelectorAll('.multi-select.open').forEach(function(ms) { ms.classList.remove('open'); });
+});
+
+// Initialize multi-selects
+var msPriority = createMultiSelect('msPriority', 'All Priorities', onFilterChange);
+var msState = createMultiSelect('msState', 'All States', onFilterChange);
+var msProduct = createMultiSelect('msProduct', 'All Products', onFilterChange);
+var msGroup = createMultiSelect('msGroup', 'All Groups', onFilterChange);
+var msMonth = createMultiSelect('msMonth', 'All Months', onFilterChange, fmtMonth);
+
+function getFiltered() {
+  var data = allCases.slice();
+  var selPriorities = msPriority.getSelected();
+  var selStates = msState.getSelected();
+  var selProducts = msProduct.getSelected();
+  var selGroups = msGroup.getSelected();
+  var selMonths = msMonth.getSelected();
+  if (selPriorities.length) data = data.filter(function(c) { return selPriorities.indexOf(c.Priority) >= 0; });
+  if (selStates.length) data = data.filter(function(c) { return selStates.indexOf(c.State) >= 0; });
+  if (selProducts.length) data = data.filter(function(c) { return selProducts.indexOf(c.Product) >= 0; });
+  if (selGroups.length) data = data.filter(function(c) { return selGroups.indexOf(c['Assignment group']) >= 0; });
+  if (selMonths.length) data = data.filter(function(c) { return selMonths.indexOf(c.month) >= 0; });
+  return data;
+}
+
+// ===== FILTERS =====
+function populateFilters() {
+  // Populate all multi-selects
+  var prioOrder = ['1 - Urgent', '2 - High', '3 - Normal', '4 - Low'];
+  var allPrios = Array.from(new Set(allCases.map(function(c) { return c.Priority; })));
+  // Sort priorities in logical order
+  allPrios.sort(function(a, b) { return prioOrder.indexOf(a) - prioOrder.indexOf(b); });
+  msPriority.setOptions(allPrios);
+  msState.setOptions(Array.from(new Set(allCases.map(function(c) { return c.State; }))).sort());
+  msProduct.setOptions(Array.from(new Set(allCases.filter(function(c) { return c.Product; }).map(function(c) { return c.Product; }))).sort());
+  msGroup.setOptions(Array.from(new Set(allCases.map(function(c) { return c['Assignment group']; }))).sort());
+  var months = Array.from(new Set(allCases.filter(function(c) { return c.month; }).map(function(c) { return c.month; }))).sort();
+  msMonth.setOptions(months);
+}
+
+function onFilterChange() {
+  renderOverview();
+  renderMonthly();
+  renderCaseTable();
+}
+
+// ===== TABS =====
+document.querySelectorAll('.tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ===== MONTH SELECT (now handled by multi-select in header) =====
+function populateMonthSelect() {
+  // Month multi-select is populated in populateFilters()
+}
+
+// ===== RENDER: OVERVIEW =====
+function renderOverview() {
+  var data = getFiltered();
+  var total = data.length;
+  var open = data.filter(function(c) { return ['New','Open','Awaiting Info'].indexOf(c.State) >= 0; }).length;
+  var closed = total - open;
+  var respTimes = data.filter(function(c) { return c.response_hours != null; }).map(function(c) { return c.response_hours; });
+  var resDays = data.filter(function(c) { return c.resolution_days != null && c.resolution_days > 0; }).map(function(c) { return c.resolution_days; });
+  var avgResp = respTimes.length ? (respTimes.reduce(function(a,b) { return a+b; }, 0) / respTimes.length).toFixed(1) : '\u2014';
+  var avgRes = resDays.length ? (resDays.reduce(function(a,b) { return a+b; }, 0) / resDays.length).toFixed(1) : '\u2014';
+
+  document.getElementById('kpiTotal').textContent = total;
+  document.getElementById('kpiOpen').textContent = open;
+  document.getElementById('kpiClosed').textContent = closed;
+  document.getElementById('kpiResponse').textContent = avgResp;
+  document.getElementById('kpiResolution').textContent = avgRes;
+
+  // State doughnut
+  var stateCounts = {};
+  data.forEach(function(c) { stateCounts[c.State] = (stateCounts[c.State] || 0) + 1; });
+  makeChart('chartState', 'doughnut', Object.keys(stateCounts),
+    [{ data: Object.values(stateCounts), backgroundColor: Object.keys(stateCounts).map(function(s) { return STATE_COLORS[s] || COLORS.purple; }) }],
+    { plugins: { legend: { position: 'right', labels: { color: '#8b8fa3', font: { size: 11 }, padding: 12 } } } }
+  );
+
+  // Priority bar
+  var prioCounts = {};
+  data.forEach(function(c) { prioCounts[c.Priority] = (prioCounts[c.Priority] || 0) + 1; });
+  var prioLabels = PRIO_ORDER.filter(function(p) { return prioCounts[p]; });
+  makeChart('chartPriority', 'bar', prioLabels,
+    [{ label: 'Cases', data: prioLabels.map(function(p) { return prioCounts[p] || 0; }), backgroundColor: prioLabels.map(function(p) { return PRIO_COLORS[p]; }), borderRadius: 6, maxBarThickness: 50 }],
+    { plugins: { legend: { display: false } } }
+  );
+
+  // Product horizontal bar
+  var prodCounts = {};
+  data.filter(function(c) { return c.Product; }).forEach(function(c) { prodCounts[c.Product] = (prodCounts[c.Product] || 0) + 1; });
+  var prodSorted = Object.entries(prodCounts).sort(function(a,b) { return b[1] - a[1]; });
+  makeChart('chartProduct', 'bar', prodSorted.map(function(e) { return e[0]; }),
+    [{ label: 'Cases', data: prodSorted.map(function(e) { return e[1]; }), backgroundColor: prodSorted.map(function(_, i) { return PALETTE[i % PALETTE.length]; }), borderRadius: 6, maxBarThickness: 30 }],
+    { indexAxis: 'y', plugins: { legend: { display: false } } }
+  );
+
+  // Assignment group doughnut
+  var grpCounts = {};
+  data.forEach(function(c) { grpCounts[c['Assignment group']] = (grpCounts[c['Assignment group']] || 0) + 1; });
+  makeChart('chartGroup', 'doughnut', Object.keys(grpCounts),
+    [{ data: Object.values(grpCounts), backgroundColor: PALETTE.slice(0, Object.keys(grpCounts).length) }],
+    { plugins: { legend: { position: 'right', labels: { color: '#8b8fa3', font: { size: 11 }, padding: 12 } } } }
+  );
+
+  // Trend line
+  var monthCounts = {};
+  data.forEach(function(c) { if (c.month) { monthCounts[c.month] = (monthCounts[c.month] || 0) + 1; } });
+  var months = Object.keys(monthCounts).sort();
+  makeChart('chartTrend', 'line', months.map(fmtMonth),
+    [{ label: 'Cases Opened', data: months.map(function(m) { return monthCounts[m]; }), borderColor: COLORS.blue, backgroundColor: 'rgba(79,140,255,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: COLORS.blue }],
+    { plugins: { legend: { display: false } } }
+  );
+
+  // Response time by priority
+  var prioResp = {}, prioCnt = {};
+  data.filter(function(c) { return c.response_hours != null; }).forEach(function(c) {
+    prioResp[c.Priority] = (prioResp[c.Priority] || 0) + c.response_hours;
+    prioCnt[c.Priority] = (prioCnt[c.Priority] || 0) + 1;
+  });
+  var respLabels = PRIO_ORDER.filter(function(p) { return prioCnt[p]; });
+  makeChart('chartResponseTime', 'bar', respLabels,
+    [{ label: 'Avg Hours', data: respLabels.map(function(p) { return +(prioResp[p] / prioCnt[p]).toFixed(2); }), backgroundColor: respLabels.map(function(p) { return PRIO_COLORS[p]; }), borderRadius: 6, maxBarThickness: 50 }],
+    { plugins: { legend: { display: false } } }
+  );
+
+  // Top contacts
+  var contactCounts = {};
+  data.filter(function(c) { return c.Contact; }).forEach(function(c) { contactCounts[c.Contact] = (contactCounts[c.Contact] || 0) + 1; });
+  var contactSorted = Object.entries(contactCounts).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 12);
+  makeChart('chartContacts', 'bar', contactSorted.map(function(e) { return e[0]; }),
+    [{ label: 'Cases', data: contactSorted.map(function(e) { return e[1]; }), backgroundColor: PALETTE.slice(2, 2 + contactSorted.length), borderRadius: 6, maxBarThickness: 30 }],
+    { indexAxis: 'y', plugins: { legend: { display: false } } }
+  );
+}
+
+// ===== RENDER: MONTHLY BREAKDOWN =====
+function renderMonthly() {
+  var data = getFiltered();
+  var selectedMonths = msMonth.getSelected();
+
+  // Get all months from the filtered data
+  var allMonths = Array.from(new Set(data.filter(function(c) { return c.month; }).map(function(c) { return c.month; }))).sort();
+
+  // Monthly ticket counts (bar chart - highlight selected months)
+  var monthTickets = {};
+  allMonths.forEach(function(m) { monthTickets[m] = 0; });
+  data.forEach(function(c) { if (c.month) { monthTickets[c.month] = (monthTickets[c.month] || 0) + 1; } });
+  var ticketBgColors = allMonths.map(function(m) {
+    return (selectedMonths.length && selectedMonths.indexOf(m) >= 0) ? COLORS.accent : (selectedMonths.length ? 'rgba(79,140,255,0.25)' : COLORS.blue);
+  });
+  makeChart('chartMonthlyTickets', 'bar', allMonths.map(fmtMonth),
+    [{ label: 'Cases', data: allMonths.map(function(m) { return monthTickets[m]; }), backgroundColor: ticketBgColors, borderRadius: 6, maxBarThickness: 40 }],
+    { plugins: { legend: { display: false } } }
+  );
+
+  // Monthly avg first response time (line)
+  var monthResp = {}, monthRespCnt = {};
+  data.filter(function(c) { return c.response_hours != null && c.month; }).forEach(function(c) {
+    monthResp[c.month] = (monthResp[c.month] || 0) + c.response_hours;
+    monthRespCnt[c.month] = (monthRespCnt[c.month] || 0) + 1;
+  });
+  makeChart('chartMonthlyFirstResponse', 'line', allMonths.map(fmtMonth),
+    [{ label: 'Avg Hours to First Response', data: allMonths.map(function(m) { return monthRespCnt[m] ? +(monthResp[m] / monthRespCnt[m]).toFixed(2) : null; }),
+       borderColor: COLORS.orange, backgroundColor: 'rgba(251,146,60,0.1)', fill: true, tension: 0.3,
+       pointBackgroundColor: allMonths.map(function(m) { return (selectedMonths.length && selectedMonths.indexOf(m) >= 0) ? COLORS.red : COLORS.orange; }),
+       pointRadius: allMonths.map(function(m) { return (selectedMonths.length && selectedMonths.indexOf(m) >= 0) ? 8 : 4; })
+    }],
+    { plugins: { legend: { display: false } } }
+  );
+
+  // Monthly avg resolution time (line)
+  var monthRes = {}, monthResCnt = {};
+  data.filter(function(c) { return c.resolution_days != null && c.resolution_days > 0 && c.month; }).forEach(function(c) {
+    monthRes[c.month] = (monthRes[c.month] || 0) + c.resolution_days;
+    monthResCnt[c.month] = (monthResCnt[c.month] || 0) + 1;
+  });
+  makeChart('chartMonthlyResolution', 'line', allMonths.map(fmtMonth),
+    [{ label: 'Avg Days to Resolution', data: allMonths.map(function(m) { return monthResCnt[m] ? +(monthRes[m] / monthResCnt[m]).toFixed(2) : null; }),
+       borderColor: COLORS.green, backgroundColor: 'rgba(52,211,153,0.1)', fill: true, tension: 0.3,
+       pointBackgroundColor: allMonths.map(function(m) { return (selectedMonths.length && selectedMonths.indexOf(m) >= 0) ? COLORS.yellow : COLORS.green; }),
+       pointRadius: allMonths.map(function(m) { return (selectedMonths.length && selectedMonths.indexOf(m) >= 0) ? 8 : 4; })
+    }],
+    { plugins: { legend: { display: false } } }
+  );
+
+  // Priority by month (stacked bar)
+  var prioByMonth = {};
+  PRIO_ORDER.forEach(function(p) { prioByMonth[p] = {}; allMonths.forEach(function(m) { prioByMonth[p][m] = 0; }); });
+  data.forEach(function(c) {
+    if (c.month && prioByMonth[c.Priority]) {
+      prioByMonth[c.Priority][c.month] = (prioByMonth[c.Priority][c.month] || 0) + 1;
+    }
+  });
+  var stackedDatasets = PRIO_ORDER.map(function(p) {
+    return {
+      label: p,
+      data: allMonths.map(function(m) { return prioByMonth[p][m] || 0; }),
+      backgroundColor: PRIO_COLORS[p],
+      borderRadius: 3
+    };
+  });
+  makeChart('chartPriorityByMonth', 'bar', allMonths.map(fmtMonth), stackedDatasets,
+    { scales: {
+        x: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
+        y: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' }, beginAtZero: true }
+      },
+      plugins: { legend: { labels: { color: '#8b8fa3', font: { size: 11 } } } }
+    }
+  );
+
+  // Selected months data (already filtered by getFiltered if months are selected)
+  var monthData = data;
+  var mTotal = monthData.length;
+  var mOpen = monthData.filter(function(c) { return ['New','Open','Awaiting Info'].indexOf(c.State) >= 0; }).length;
+  var mClosed = mTotal - mOpen;
+  var mRespTimes = monthData.filter(function(c) { return c.response_hours != null; }).map(function(c) { return c.response_hours; });
+  var mResDays = monthData.filter(function(c) { return c.resolution_days != null && c.resolution_days > 0; }).map(function(c) { return c.resolution_days; });
+  var mAvgResp = mRespTimes.length ? (mRespTimes.reduce(function(a,b) { return a+b; }, 0) / mRespTimes.length).toFixed(1) : '\u2014';
+  var mAvgRes = mResDays.length ? (mResDays.reduce(function(a,b) { return a+b; }, 0) / mResDays.length).toFixed(1) : '\u2014';
+
+  document.getElementById('mKpiTotal').textContent = mTotal;
+  document.getElementById('mKpiOpen').textContent = mOpen;
+  document.getElementById('mKpiClosed').textContent = mClosed;
+  document.getElementById('mKpiResponse').textContent = mAvgResp;
+  document.getElementById('mKpiResolution').textContent = mAvgRes;
+  var monthLabel = selectedMonths.length ? mTotal + ' cases in ' + selectedMonths.map(fmtMonth).join(', ') : mTotal + ' total cases';
+  document.getElementById('monthCaseCount').textContent = monthLabel;
+
+  // Monthly priority doughnut (for selected month)
+  var mPrioCounts = {};
+  monthData.forEach(function(c) { mPrioCounts[c.Priority] = (mPrioCounts[c.Priority] || 0) + 1; });
+  var mPrioLabels = PRIO_ORDER.filter(function(p) { return mPrioCounts[p]; });
+  makeChart('chartMonthlyPriority', 'doughnut', mPrioLabels,
+    [{ data: mPrioLabels.map(function(p) { return mPrioCounts[p]; }), backgroundColor: mPrioLabels.map(function(p) { return PRIO_COLORS[p]; }) }],
+    { plugins: { legend: { position: 'right', labels: { color: '#8b8fa3', font: { size: 11 }, padding: 12 } } } }
+  );
+
+  // Monthly case table
+  document.getElementById('monthTableTitle').textContent = selectedMonths.length ? 'Cases for ' + selectedMonths.map(fmtMonth).join(', ') : 'All Cases';
+  var sorted = monthData.slice().sort(function(a,b) { return new Date(b.Opened) - new Date(a.Opened); });
+  document.getElementById('monthCaseTable').innerHTML = sorted.map(function(c) {
+    return '<tr>' +
+      '<td style="color:' + COLORS.blue + ';font-weight:600">' + c.Number + '</td>' +
+      '<td>' + fmtDate(c.Opened) + '</td>' +
+      '<td>' + (c.Contact || '\u2014') + '</td>' +
+      '<td>' + priorityBadge(c.Priority) + '</td>' +
+      '<td>' + stateBadge(c.State) + '</td>' +
+      '<td>' + (c.Product || '\u2014') + '</td>' +
+      '<td>' + (c.response_hours != null ? c.response_hours.toFixed(1) : '\u2014') + '</td>' +
+      '<td>' + (c.resolution_days != null && c.resolution_days > 0 ? c.resolution_days.toFixed(1) : '\u2014') + '</td>' +
+      '<td>' + truncate(c['Short description'], 50) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ===== RENDER: CASE TABLE =====
+function renderCaseTable() {
+  var data = getFiltered();
+  var sorted = data.slice().sort(function(a,b) { return new Date(b.Opened) - new Date(a.Opened); });
+  document.getElementById('caseCountLabel').textContent = sorted.length;
+  document.getElementById('caseTable').innerHTML = sorted.map(function(c) {
+    return '<tr>' +
+      '<td style="color:' + COLORS.blue + ';font-weight:600">' + c.Number + '</td>' +
+      '<td>' + fmtDate(c.Opened) + '</td>' +
+      '<td>' + (c.Contact || '\u2014') + '</td>' +
+      '<td>' + priorityBadge(c.Priority) + '</td>' +
+      '<td>' + stateBadge(c.State) + '</td>' +
+      '<td>' + (c.Product || '\u2014') + '</td>' +
+      '<td>' + c['Assignment group'] + '</td>' +
+      '<td>' + truncate(c['Short description'], 55) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+</script>
+</body>
+</html>
