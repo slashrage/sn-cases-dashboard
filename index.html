@@ -6,6 +6,7 @@
 <title>ServiceNow Cases Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -400,16 +401,32 @@
 <!-- UPLOAD SCREEN -->
 <div class="upload-screen" id="uploadScreen">
   <h1>ServiceNow Cases Dashboard</h1>
-  <p class="sub">Load your case data from a CSV file to get started</p>
-  <div class="drop-zone" id="dropZone">
-    <div class="icon">📂</div>
-    <div class="label">Drop CSV file here or click to browse</div>
-    <div class="hint">Supports .csv files exported from ServiceNow</div>
-    <input type="file" id="fileInput" accept=".csv">
+  <p class="sub">Load your case data and SLA reports to get started</p>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;justify-content:center;width:100%;max-width:960px;">
+    <div style="flex:1;min-width:320px;">
+      <div class="drop-zone" id="dropZone" style="width:100%;">
+        <div class="icon">📂</div>
+        <div class="label">Drop <strong>Case CSV</strong> here or click to browse</div>
+        <div class="hint">ServiceNow case export (.csv) — required</div>
+        <input type="file" id="fileInput" accept=".csv">
+      </div>
+      <div id="csvStatus" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+    </div>
+    <div style="flex:1;min-width:320px;">
+      <div class="drop-zone" id="dropZoneSla" style="width:100%;">
+        <div class="icon">📊</div>
+        <div class="label">Drop <strong>SLA Excel files</strong> here or click to browse</div>
+        <div class="hint">Monthly SLA reports (.xlsx) — optional, multiple files OK</div>
+        <input type="file" id="slaFileInput" accept=".xlsx,.xls" multiple>
+      </div>
+      <div id="slaStatus" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+    </div>
   </div>
-  <div class="expected-cols">
-    <strong>Expected columns:</strong> opened_at, number, contact, sys_created_by, priority, u_user_role, product, short_description, state, first_response_time, resolved_at, assignment_group, u_workaround_provided<br>
-    <span style="color:var(--text-muted);font-size:11px;">Also accepts friendly headers. The u_workaround_provided column is optional (used for SLA calculations on P1/P2 tickets).</span>
+  <div style="margin-top:20px;">
+    <button class="btn btn-accent" id="btnLaunch" style="padding:10px 32px;font-size:14px;display:none;">Launch Dashboard →</button>
+  </div>
+  <div class="expected-cols" style="margin-top:16px;">
+    <span style="color:var(--text-muted);font-size:11px;">CSV columns: opened_at, number, contact, priority, state, etc. SLA Excel: Versant monthly SLA reports with "First Response SLA" and "Resolve-Workaround SLA" sheets.</span>
   </div>
 </div>
 
@@ -443,7 +460,7 @@
           <div class="ms-dropdown"></div>
         </div>
       </div>
-      <button class="btn" id="btnLoadNew">📂 Load New CSV</button>
+      <button class="btn" id="btnLoadNew">📂 Load New Data</button>
     </div>
   </div>
 
@@ -486,28 +503,8 @@
       <div class="kpi-card"><div class="value" id="slaWaPct">&mdash;</div><div class="label">Workaround SLA %</div></div>
     </div>
 
-    <div class="sla-targets" style="margin-bottom:20px;">
-      <div class="chart-card">
-        <h3>SLA Targets</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-          <div>
-            <h4 style="color:var(--accent);font-size:13px;margin-bottom:10px;">First Response Targets</h4>
-            <table style="font-size:13px;">
-              <tr><td style="padding:4px 12px;color:var(--text-muted);">P1 — Urgent</td><td style="padding:4px 12px;font-weight:600;">1 hour</td></tr>
-              <tr><td style="padding:4px 12px;color:var(--text-muted);">P2 — High</td><td style="padding:4px 12px;font-weight:600;">2 hours</td></tr>
-              <tr><td style="padding:4px 12px;color:var(--text-muted);">P3 — Normal</td><td style="padding:4px 12px;font-weight:600;">1 business day (24 hrs)</td></tr>
-            </table>
-          </div>
-          <div>
-            <h4 style="color:var(--accent2);font-size:13px;margin-bottom:10px;">Workaround Targets</h4>
-            <table style="font-size:13px;">
-              <tr><td style="padding:4px 12px;color:var(--text-muted);">P1 — Urgent</td><td style="padding:4px 12px;font-weight:600;">4 hours</td></tr>
-              <tr><td style="padding:4px 12px;color:var(--text-muted);">P2 — High</td><td style="padding:4px 12px;font-weight:600;">8 hours</td></tr>
-            </table>
-            <div style="color:var(--text-muted);font-size:11px;margin-top:6px;padding-left:12px;">Business hours: 8:00 AM – 5:00 PM, Mon–Fri</div>
-          </div>
-        </div>
-      </div>
+    <div style="margin-bottom:16px;color:var(--text-muted);font-size:12px;">
+      SLA data sourced from uploaded monthly SLA Excel reports. Targets and results are as reported by the SLA system.
     </div>
 
     <div class="charts-grid">
@@ -517,13 +514,12 @@
     </div>
 
     <div class="table-card">
-      <h3>SLA Detail — All Applicable Cases (<span id="slaTableCount">0</span>)</h3>
+      <h3>SLA Detail (<span id="slaTableCount">0</span> records)</h3>
       <table>
         <thead>
           <tr>
-            <th>Number</th><th>Opened</th><th>Priority</th><th>First Response</th>
-            <th>FR Elapsed</th><th>FR Target</th><th>FR SLA</th>
-            <th>Workaround</th><th>WA Elapsed</th><th>WA Target</th><th>WA SLA</th>
+            <th>Number</th><th>Month</th><th>Priority</th><th>SLA Type</th>
+            <th>SLA Name</th><th>Target</th><th>Actual</th><th>Result</th>
           </tr>
         </thead>
         <tbody id="slaTable"></tbody>
@@ -587,6 +583,7 @@
 // ===== GLOBALS =====
 var allCases = [];
 var charts = {};
+var slaData = { monthly_summary: [], first_response: [], workaround: [] };
 
 var COLORS = {
   blue: '#4f8cff', purple: '#7c5cfc', green: '#34d399', orange: '#fb923c',
@@ -599,25 +596,65 @@ var PRIO_COLORS = { '1 - Urgent': COLORS.red, '2 - High': COLORS.orange, '3 - No
 var STATE_COLORS = { 'New': COLORS.yellow, 'Open': COLORS.blue, 'Awaiting Info': COLORS.orange, 'Resolved': COLORS.green, 'Closed': '#6b7280' };
 
 // ===== FILE UPLOAD =====
+var pendingCsvData = null;
+var pendingCsvName = '';
+var pendingSlaData = { monthly_summary: [], first_response: [], workaround: [] };
+var pendingSlaFiles = [];
+
+// CSV drop zone
 var dropZone = document.getElementById('dropZone');
 var fileInput = document.getElementById('fileInput');
-
 dropZone.addEventListener('click', function() { fileInput.click(); });
 dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
 dropZone.addEventListener('drop', function(e) {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) handleCsvFile(e.dataTransfer.files[0]);
 });
-fileInput.addEventListener('change', function() { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+fileInput.addEventListener('change', function() { if (fileInput.files.length) handleCsvFile(fileInput.files[0]); });
+
+// SLA drop zone
+var dropZoneSla = document.getElementById('dropZoneSla');
+var slaFileInput = document.getElementById('slaFileInput');
+dropZoneSla.addEventListener('click', function() { slaFileInput.click(); });
+dropZoneSla.addEventListener('dragover', function(e) { e.preventDefault(); dropZoneSla.classList.add('dragover'); });
+dropZoneSla.addEventListener('dragleave', function() { dropZoneSla.classList.remove('dragover'); });
+dropZoneSla.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropZoneSla.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleSlaFiles(e.dataTransfer.files);
+});
+slaFileInput.addEventListener('change', function() { if (slaFileInput.files.length) handleSlaFiles(slaFileInput.files); });
+
+// Load New button
 document.getElementById('btnLoadNew').addEventListener('click', function() {
   document.getElementById('dashboard').classList.remove('active');
   document.getElementById('uploadScreen').style.display = 'flex';
   fileInput.value = '';
+  slaFileInput.value = '';
+  pendingCsvData = null;
+  pendingSlaData = { monthly_summary: [], first_response: [], workaround: [] };
+  pendingSlaFiles = [];
+  document.getElementById('csvStatus').textContent = '';
+  document.getElementById('slaStatus').textContent = '';
+  document.getElementById('btnLaunch').style.display = 'none';
 });
 
-function handleFile(file) {
+function checkReady() {
+  var btn = document.getElementById('btnLaunch');
+  if (pendingCsvData) {
+    btn.style.display = 'inline-block';
+  }
+}
+
+document.getElementById('btnLaunch').addEventListener('click', function() {
+  if (pendingCsvData) {
+    processData(pendingCsvData, pendingCsvName);
+  }
+});
+
+function handleCsvFile(file) {
   if (!file.name.toLowerCase().endsWith('.csv')) {
     alert('Please select a CSV file.');
     return;
@@ -626,10 +663,118 @@ function handleFile(file) {
     header: true,
     skipEmptyLines: true,
     complete: function(results) {
-      processData(results.data, file.name);
+      pendingCsvData = results.data;
+      pendingCsvName = file.name;
+      document.getElementById('csvStatus').innerHTML = '✅ <strong>' + file.name + '</strong> — ' + results.data.length + ' cases loaded';
+      checkReady();
     },
     error: function(err) {
       alert('Error reading CSV: ' + err.message);
+    }
+  });
+}
+
+function handleSlaFiles(files) {
+  pendingSlaData = { monthly_summary: [], first_response: [], workaround: [] };
+  pendingSlaFiles = [];
+  var processed = 0;
+  var total = files.length;
+
+  for (var i = 0; i < files.length; i++) {
+    (function(file) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          parseSlaExcel(e.target.result, file.name);
+          pendingSlaFiles.push(file.name);
+        } catch(err) {
+          console.error('Error parsing SLA file:', file.name, err);
+        }
+        processed++;
+        if (processed === total) {
+          var frCount = pendingSlaData.first_response.length;
+          var waCount = pendingSlaData.workaround.length;
+          var months = pendingSlaData.monthly_summary.map(function(s) { return s.month; });
+          var uniqueMonths = Array.from(new Set(months)).sort();
+          document.getElementById('slaStatus').innerHTML = '✅ <strong>' + pendingSlaFiles.length + ' SLA file(s)</strong> — ' +
+            frCount + ' FR records, ' + waCount + ' WA records (' + uniqueMonths.map(fmtMonth).join(', ') + ')';
+          checkReady();
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    })(files[i]);
+  }
+}
+
+function parseSlaExcel(data, filename) {
+  var wb = XLSX.read(data, { type: 'array', cellDates: true });
+
+  wb.SheetNames.forEach(function(sheetName) {
+    var ws = wb.Sheets[sheetName];
+    var isFR = sheetName.toLowerCase().indexOf('first response') >= 0;
+    var isWA = sheetName.toLowerCase().indexOf('resolve') >= 0 || sheetName.toLowerCase().indexOf('workaround') >= 0;
+    if (!isFR && !isWA) return;
+
+    var slaType = isFR ? 'first_response' : 'workaround';
+
+    // Read raw data as array of arrays
+    var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd"T"HH:mm:ss' });
+
+    // Extract month from row 2 (index 2), col C (index 2)
+    var monthRaw = rows[2] ? rows[2][2] : null;
+    var monthLabel = '';
+    if (monthRaw) {
+      var md = new Date(monthRaw);
+      if (!isNaN(md)) {
+        monthLabel = md.toISOString().slice(0, 7);
+      }
+    }
+
+    // Extract summary
+    var totalRaw = rows[6] ? String(rows[6][1] || '') : '';
+    var resultRaw = rows[10] ? String(rows[10][1] || '') : '';
+    var totalCases = parseInt(totalRaw.split('\n').pop()) || 0;
+    var slaPct = resultRaw.split('\n').pop().trim() || '0%';
+    var passedRatio = parseFloat(rows[13] ? rows[13][1] : 0) || 0;
+    var failedRatio = parseFloat(rows[14] ? rows[14][1] : 0) || 0;
+
+    pendingSlaData.monthly_summary.push({
+      month: monthLabel,
+      sla_type: slaType,
+      total_cases: totalCases,
+      sla_pct: slaPct,
+      passed_ratio: passedRatio,
+      failed_ratio: failedRatio,
+      source_file: filename
+    });
+
+    // Extract ticket rows starting from row 17 (index 17)
+    for (var i = 17; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row || !row[1]) continue;
+      var num = String(row[1]).trim();
+      if (!num.match(/^(TS|BIL|OPE|ZPP)/)) continue;
+
+      var record = {
+        month: monthLabel,
+        sla_type: slaType,
+        number: num,
+        priority: row[2] || '',
+        user_role: row[3] || '',
+        closed: row[5] || null,
+        created: row[6] || null,
+        response_time: row[7] || null,
+        sla_name: row[8] || '',
+        sla_duration_hrs: parseFloat(row[9]) || null,
+        actual_duration_hrs: parseFloat(row[10]) || null,
+        sla_result: row[11] || ''
+      };
+
+      if (slaType === 'first_response') {
+        pendingSlaData.first_response.push(record);
+      } else {
+        pendingSlaData.workaround.push(record);
+      }
     }
   });
 }
@@ -687,7 +832,14 @@ function processData(rows, filename) {
     };
   });
 
-  document.getElementById('dashSubtitle').textContent = 'Loaded ' + allCases.length + ' cases from ' + filename;
+  // Store SLA data globally
+  slaData = pendingSlaData || { monthly_summary: [], first_response: [], workaround: [] };
+
+  var slaInfo = '';
+  if (slaData.first_response.length || slaData.workaround.length) {
+    slaInfo = ' + ' + (slaData.first_response.length + slaData.workaround.length) + ' SLA records';
+  }
+  document.getElementById('dashSubtitle').textContent = 'Loaded ' + allCases.length + ' cases from ' + filename + slaInfo;
   document.getElementById('uploadScreen').style.display = 'none';
   document.getElementById('dashboard').classList.add('active');
 
@@ -953,84 +1105,10 @@ function renderOverview() {
   );
 }
 
-// ===== BUSINESS HOURS CALCULATOR =====
-// Business hours: 8:00 AM - 5:00 PM (9 hrs/day), Monday-Friday
-function calcBusinessHours(start, end) {
-  if (!start || !end) return null;
-  var s = new Date(start);
-  var e = new Date(end);
-  if (e <= s) return 0;
-
-  var BIZ_START = 8; // 8:00 AM
-  var BIZ_END = 17;  // 5:00 PM
-  var BIZ_HOURS_PER_DAY = BIZ_END - BIZ_START; // 9 hours
-  var totalMinutes = 0;
-
-  var current = new Date(s);
-
-  // Cap to max 1000 iterations to prevent infinite loops
-  var safety = 0;
-  while (current < e && safety < 50000) {
-    safety++;
-    var dow = current.getDay(); // 0=Sun, 6=Sat
-
-    // Skip weekends
-    if (dow === 0 || dow === 6) {
-      current.setDate(current.getDate() + 1);
-      current.setHours(BIZ_START, 0, 0, 0);
-      continue;
-    }
-
-    var dayStart = new Date(current);
-    dayStart.setHours(BIZ_START, 0, 0, 0);
-    var dayEnd = new Date(current);
-    dayEnd.setHours(BIZ_END, 0, 0, 0);
-
-    // If current is before business hours, move to start
-    if (current < dayStart) {
-      current = dayStart;
-    }
-
-    // If current is after business hours, move to next day
-    if (current >= dayEnd) {
-      current.setDate(current.getDate() + 1);
-      current.setHours(BIZ_START, 0, 0, 0);
-      continue;
-    }
-
-    // Calculate minutes in this business day
-    var effectiveEnd = (e < dayEnd) ? e : dayEnd;
-    if (effectiveEnd > current) {
-      totalMinutes += (effectiveEnd - current) / 60000;
-    }
-
-    // Move to next day
-    current.setDate(current.getDate() + 1);
-    current.setHours(BIZ_START, 0, 0, 0);
-  }
-
-  return totalMinutes / 60; // return hours
-}
-
-// SLA target hours (in business hours)
-var SLA_FR_TARGETS = {
-  '1 - Urgent': 1,
-  '2 - High': 2,
-  '3 - Normal': 24  // 1 business day = 24 business hours
-};
-var SLA_WA_TARGETS = {
-  '1 - Urgent': 4,
-  '2 - High': 8
-};
-
-function getSlaStatus(elapsedHrs, targetHrs) {
-  if (elapsedHrs === null || targetHrs === undefined) return null;
-  return elapsedHrs <= targetHrs ? 'Met' : 'Breached';
-}
-
+// ===== SLA HELPERS =====
 function slaBadge(status) {
-  if (status === 'Met') return '<span class="badge badge-met">Met</span>';
-  if (status === 'Breached') return '<span class="badge badge-breached">Breached</span>';
+  if (status === 'Passed') return '<span class="badge badge-met">Passed</span>';
+  if (status === 'Failed') return '<span class="badge badge-breached">Failed</span>';
   return '<span class="badge badge-na">N/A</span>';
 }
 
@@ -1042,57 +1120,50 @@ function fmtHrs(h) {
 
 // ===== RENDER: SLA PERFORMANCE =====
 function renderSLA() {
-  var data = getFiltered();
+  // Use external SLA data from uploaded Excel files
+  var fr = slaData.first_response || [];
+  var wa = slaData.workaround || [];
+  var summary = slaData.monthly_summary || [];
 
-  // Calculate SLA for each case
-  var slaData = data.map(function(c) {
-    var opened = c.Opened ? new Date(c.Opened) : null;
-    var fr = c['First Response Time'] ? new Date(c['First Response Time']) : null;
-    var wa = c['Workaround Provided'] ? new Date(c['Workaround Provided']) : null;
+  // Apply filters: match SLA records to filtered case numbers
+  var filteredNumbers = new Set(getFiltered().map(function(c) { return c.Number; }));
+  var frFiltered = fr.filter(function(r) { return filteredNumbers.has(r.number); });
+  var waFiltered = wa.filter(function(r) { return filteredNumbers.has(r.number); });
 
-    var frBizHrs = calcBusinessHours(opened, fr);
-    var waBizHrs = calcBusinessHours(opened, wa);
+  // If no SLA data loaded, show message
+  if (fr.length === 0 && wa.length === 0) {
+    document.getElementById('slaFrMet').textContent = '\u2014';
+    document.getElementById('slaFrBreached').textContent = '\u2014';
+    document.getElementById('slaFrPct').textContent = '\u2014';
+    document.getElementById('slaWaMet').textContent = '\u2014';
+    document.getElementById('slaWaBreached').textContent = '\u2014';
+    document.getElementById('slaWaPct').textContent = '\u2014';
+    document.getElementById('slaTableCount').textContent = '0';
+    document.getElementById('slaTable').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:40px;">No SLA data loaded. Upload monthly SLA Excel files alongside your CSV to populate this tab.</td></tr>';
+    // Clear charts
+    ['chartSlaFrByPrio','chartSlaWaByPrio','chartSlaFrTrend'].forEach(function(id) {
+      if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    });
+    return;
+  }
 
-    var frTarget = SLA_FR_TARGETS[c.Priority];
-    var waTarget = SLA_WA_TARGETS[c.Priority];
+  // KPIs — First Response
+  var frPassed = frFiltered.filter(function(r) { return r.sla_result === 'Passed'; }).length;
+  var frFailed = frFiltered.filter(function(r) { return r.sla_result === 'Failed'; }).length;
+  var frTotal = frFiltered.length;
+  var frPct = frTotal ? ((frPassed / frTotal) * 100).toFixed(1) + '%' : '\u2014';
 
-    var frStatus = getSlaStatus(frBizHrs, frTarget);
-    var waStatus = getSlaStatus(waBizHrs, waTarget);
+  // KPIs — Workaround
+  var waPassed = waFiltered.filter(function(r) { return r.sla_result === 'Passed'; }).length;
+  var waFailed = waFiltered.filter(function(r) { return r.sla_result === 'Failed'; }).length;
+  var waTotal = waFiltered.length;
+  var waPct = waTotal ? ((waPassed / waTotal) * 100).toFixed(1) + '%' : '\u2014';
 
-    return {
-      Number: c.Number,
-      Opened: c.Opened,
-      Priority: c.Priority,
-      State: c.State,
-      month: c.month,
-      frTime: c['First Response Time'],
-      waTime: c['Workaround Provided'],
-      frBizHrs: frBizHrs,
-      waBizHrs: waBizHrs,
-      frTarget: frTarget,
-      waTarget: waTarget,
-      frStatus: frStatus,
-      waStatus: waStatus
-    };
-  });
-
-  // KPIs — First Response (P1, P2, P3 only)
-  var frApplicable = slaData.filter(function(s) { return s.frTarget !== undefined && s.frBizHrs !== null; });
-  var frMet = frApplicable.filter(function(s) { return s.frStatus === 'Met'; }).length;
-  var frBreached = frApplicable.filter(function(s) { return s.frStatus === 'Breached'; }).length;
-  var frPct = frApplicable.length ? ((frMet / frApplicable.length) * 100).toFixed(1) + '%' : '\u2014';
-
-  // KPIs — Workaround (P1, P2 only)
-  var waApplicable = slaData.filter(function(s) { return s.waTarget !== undefined && s.waBizHrs !== null; });
-  var waMet = waApplicable.filter(function(s) { return s.waStatus === 'Met'; }).length;
-  var waBreached = waApplicable.filter(function(s) { return s.waStatus === 'Breached'; }).length;
-  var waPct = waApplicable.length ? ((waMet / waApplicable.length) * 100).toFixed(1) + '%' : '\u2014';
-
-  document.getElementById('slaFrMet').textContent = frMet;
-  document.getElementById('slaFrBreached').textContent = frBreached;
+  document.getElementById('slaFrMet').textContent = frPassed;
+  document.getElementById('slaFrBreached').textContent = frFailed;
   document.getElementById('slaFrPct').textContent = frPct;
-  document.getElementById('slaWaMet').textContent = waMet;
-  document.getElementById('slaWaBreached').textContent = waBreached;
+  document.getElementById('slaWaMet').textContent = waPassed;
+  document.getElementById('slaWaBreached').textContent = waFailed;
   document.getElementById('slaWaPct').textContent = waPct;
 
   // Style KPI colors
@@ -1103,20 +1174,13 @@ function renderSLA() {
   document.getElementById('slaWaBreached').style.color = COLORS.red;
   document.getElementById('slaWaPct').style.color = COLORS.purple;
 
-  // Chart: FR SLA by Priority (stacked bar: met vs breached)
-  var frPrios = ['1 - Urgent', '2 - High', '3 - Normal'];
-  var frMetByPrio = [0, 0, 0];
-  var frBreachedByPrio = [0, 0, 0];
-  frApplicable.forEach(function(s) {
-    var idx = frPrios.indexOf(s.Priority);
-    if (idx >= 0) {
-      if (s.frStatus === 'Met') frMetByPrio[idx]++;
-      else frBreachedByPrio[idx]++;
-    }
-  });
+  // Chart: FR SLA by Priority (stacked bar)
+  var frPrios = Array.from(new Set(frFiltered.map(function(r) { return r.priority; }))).sort();
+  var frPassedByPrio = frPrios.map(function(p) { return frFiltered.filter(function(r) { return r.priority === p && r.sla_result === 'Passed'; }).length; });
+  var frFailedByPrio = frPrios.map(function(p) { return frFiltered.filter(function(r) { return r.priority === p && r.sla_result === 'Failed'; }).length; });
   makeChart('chartSlaFrByPrio', 'bar', frPrios, [
-    { label: 'Met', data: frMetByPrio, backgroundColor: COLORS.green, borderRadius: 4 },
-    { label: 'Breached', data: frBreachedByPrio, backgroundColor: COLORS.red, borderRadius: 4 }
+    { label: 'Passed', data: frPassedByPrio, backgroundColor: COLORS.green, borderRadius: 4 },
+    { label: 'Failed', data: frFailedByPrio, backgroundColor: COLORS.red, borderRadius: 4 }
   ], {
     scales: {
       x: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
@@ -1125,63 +1189,95 @@ function renderSLA() {
   });
 
   // Chart: WA SLA by Priority (stacked bar)
-  var waPrios = ['1 - Urgent', '2 - High'];
-  var waMetByPrio = [0, 0];
-  var waBreachedByPrio = [0, 0];
-  waApplicable.forEach(function(s) {
-    var idx = waPrios.indexOf(s.Priority);
-    if (idx >= 0) {
-      if (s.waStatus === 'Met') waMetByPrio[idx]++;
-      else waBreachedByPrio[idx]++;
-    }
+  var waPrios = Array.from(new Set(waFiltered.map(function(r) { return r.priority; }))).sort();
+  if (waPrios.length) {
+    var waPassedByPrio = waPrios.map(function(p) { return waFiltered.filter(function(r) { return r.priority === p && r.sla_result === 'Passed'; }).length; });
+    var waFailedByPrio = waPrios.map(function(p) { return waFiltered.filter(function(r) { return r.priority === p && r.sla_result === 'Failed'; }).length; });
+    makeChart('chartSlaWaByPrio', 'bar', waPrios, [
+      { label: 'Passed', data: waPassedByPrio, backgroundColor: COLORS.green, borderRadius: 4 },
+      { label: 'Failed', data: waFailedByPrio, backgroundColor: COLORS.red, borderRadius: 4 }
+    ], {
+      scales: {
+        x: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
+        y: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' }, beginAtZero: true }
+      }
+    });
+  }
+
+  // Chart: Monthly SLA % trend (from summary data)
+  var frSummary = summary.filter(function(s) { return s.sla_type === 'first_response'; }).sort(function(a,b) { return a.month.localeCompare(b.month); });
+  var waSummary = summary.filter(function(s) { return s.sla_type === 'workaround'; }).sort(function(a,b) { return a.month.localeCompare(b.month); });
+  var trendMonths = Array.from(new Set(summary.map(function(s) { return s.month; }))).sort();
+
+  if (trendMonths.length) {
+    var frPctByMonth = trendMonths.map(function(m) {
+      var s = frSummary.find(function(x) { return x.month === m; });
+      return s ? parseFloat(s.sla_pct) : null;
+    });
+    var waPctByMonth = trendMonths.map(function(m) {
+      var s = waSummary.find(function(x) { return x.month === m; });
+      return s ? parseFloat(s.sla_pct) : null;
+    });
+    makeChart('chartSlaFrTrend', 'line', trendMonths.map(fmtMonth), [
+      { label: 'First Response SLA %', data: frPctByMonth, borderColor: COLORS.green, backgroundColor: 'rgba(52,211,153,0.1)', fill: false, tension: 0.3, pointRadius: 5, pointBackgroundColor: COLORS.green },
+      { label: 'Workaround SLA %', data: waPctByMonth, borderColor: COLORS.purple, backgroundColor: 'rgba(124,92,252,0.1)', fill: false, tension: 0.3, pointRadius: 5, pointBackgroundColor: COLORS.purple }
+    ], {
+      scales: {
+        x: { ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
+        y: { ticks: { color: '#8b8fa3', font: { size: 11 }, callback: function(v) { return v + '%'; } }, grid: { color: '#2a2d3a' }, beginAtZero: true, max: 100 }
+      }
+    });
+  }
+
+  // SLA Detail Table — combine FR and WA records
+  var allRecords = [];
+  frFiltered.forEach(function(r) {
+    allRecords.push({
+      number: r.number,
+      month: r.month,
+      priority: r.priority,
+      sla_type: 'First Response',
+      sla_name: r.sla_name,
+      target_hrs: r.sla_duration_hrs,
+      actual_hrs: r.actual_duration_hrs,
+      result: r.sla_result,
+      created: r.created,
+      response_time: r.response_time
+    });
   });
-  makeChart('chartSlaWaByPrio', 'bar', waPrios, [
-    { label: 'Met', data: waMetByPrio, backgroundColor: COLORS.green, borderRadius: 4 },
-    { label: 'Breached', data: waBreachedByPrio, backgroundColor: COLORS.red, borderRadius: 4 }
-  ], {
-    scales: {
-      x: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
-      y: { stacked: true, ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' }, beginAtZero: true }
-    }
+  waFiltered.forEach(function(r) {
+    allRecords.push({
+      number: r.number,
+      month: r.month,
+      priority: r.priority,
+      sla_type: 'Workaround',
+      sla_name: r.sla_name,
+      target_hrs: r.sla_duration_hrs,
+      actual_hrs: r.actual_duration_hrs,
+      result: r.sla_result,
+      created: r.created,
+      response_time: r.response_time
+    });
   });
 
-  // Chart: FR SLA % trend by month
-  var allMonths = Array.from(new Set(slaData.filter(function(s) { return s.month; }).map(function(s) { return s.month; }))).sort();
-  var frPctByMonth = allMonths.map(function(m) {
-    var monthCases = frApplicable.filter(function(s) { return s.month === m; });
-    if (!monthCases.length) return null;
-    var met = monthCases.filter(function(s) { return s.frStatus === 'Met'; }).length;
-    return +((met / monthCases.length) * 100).toFixed(1);
-  });
-  makeChart('chartSlaFrTrend', 'line', allMonths.map(fmtMonth), [
-    { label: 'FR SLA %', data: frPctByMonth, borderColor: COLORS.green, backgroundColor: 'rgba(52,211,153,0.1)', fill: true, tension: 0.3, pointRadius: 5, pointBackgroundColor: COLORS.green }
-  ], {
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { color: '#2a2d3a' } },
-      y: { ticks: { color: '#8b8fa3', font: { size: 11 }, callback: function(v) { return v + '%'; } }, grid: { color: '#2a2d3a' }, beginAtZero: true, max: 100 }
-    }
+  // Sort by month desc, then number
+  allRecords.sort(function(a, b) {
+    var mc = b.month.localeCompare(a.month);
+    if (mc !== 0) return mc;
+    return a.number.localeCompare(b.number);
   });
 
-  // SLA Detail Table
-  var tableCases = slaData.filter(function(s) {
-    return s.frTarget !== undefined || s.waTarget !== undefined;
-  }).sort(function(a, b) { return new Date(b.Opened) - new Date(a.Opened); });
-
-  document.getElementById('slaTableCount').textContent = tableCases.length;
-  document.getElementById('slaTable').innerHTML = tableCases.map(function(s) {
+  document.getElementById('slaTableCount').textContent = allRecords.length;
+  document.getElementById('slaTable').innerHTML = allRecords.map(function(r) {
     return '<tr>' +
-      '<td style="color:' + COLORS.blue + ';font-weight:600">' + s.Number + '</td>' +
-      '<td>' + fmtDate(s.Opened) + '</td>' +
-      '<td>' + priorityBadge(s.Priority) + '</td>' +
-      '<td>' + fmtDate(s.frTime) + '</td>' +
-      '<td>' + fmtHrs(s.frBizHrs) + '</td>' +
-      '<td>' + (s.frTarget !== undefined ? fmtHrs(s.frTarget) : '\u2014') + '</td>' +
-      '<td>' + (s.frStatus ? slaBadge(s.frStatus) : slaBadge(null)) + '</td>' +
-      '<td>' + fmtDate(s.waTime) + '</td>' +
-      '<td>' + fmtHrs(s.waBizHrs) + '</td>' +
-      '<td>' + (s.waTarget !== undefined ? fmtHrs(s.waTarget) : '\u2014') + '</td>' +
-      '<td>' + (s.waStatus ? slaBadge(s.waStatus) : slaBadge(null)) + '</td>' +
+      '<td style="color:' + COLORS.blue + ';font-weight:600">' + r.number + '</td>' +
+      '<td>' + fmtMonth(r.month) + '</td>' +
+      '<td>' + priorityBadge(r.priority) + '</td>' +
+      '<td>' + (r.sla_type === 'First Response' ? '<span style="color:' + COLORS.blue + '">' + r.sla_type + '</span>' : '<span style="color:' + COLORS.purple + '">' + r.sla_type + '</span>') + '</td>' +
+      '<td style="font-size:11px;color:var(--text-muted);">' + (r.sla_name || '\u2014') + '</td>' +
+      '<td>' + fmtHrs(r.target_hrs) + '</td>' +
+      '<td>' + fmtHrs(r.actual_hrs) + '</td>' +
+      '<td>' + slaBadge(r.result) + '</td>' +
     '</tr>';
   }).join('');
 }
