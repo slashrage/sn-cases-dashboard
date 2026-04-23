@@ -1,15 +1,56 @@
 # ServiceNow Cases Dashboard
 
-Interactive dashboard for visualizing ServiceNow customer service case data. Built as a single self-contained HTML file — no server, no build step, no dependencies to install.
+Interactive dashboard for visualizing ServiceNow customer service case data and SLA performance. Built as a single self-contained HTML file — no server, no build step, no dependencies to install.
 
 ## Features
 
 - **5 KPI cards** — Total cases, open/closed counts, avg response time, avg resolution time
 - **7 interactive charts** — State, priority, product, assignment group, monthly trend, response time by priority, top contacts
 - **5 multi-select filters** — Priority, State, Product, Assignment Group, Month (all support selecting multiple values)
-- **3 tabs** — Overview, Monthly Breakdown, All Cases
-- **CSV upload** — Drag-and-drop or click to load any ServiceNow case export
+- **4 tabs** — Overview, SLA Performance, Monthly Breakdown, All Cases
+- **Dual file upload** — CSV for case data, Excel for SLA reports
 - **Dual header support** — Accepts both standard headers (`Opened`, `Number`, `State`, etc.) and ServiceNow API headers (`opened_at`, `number`, `state`, etc.)
+
+### SLA Performance Tab
+- Parses monthly SLA Excel files with "First Response SLA" and "Resolve-Workaround SLA" sheets
+- Displays SLA KPIs (met/breached counts and percentages) for both First Response and Workaround SLAs
+- Monthly SLA % trend chart showing performance over time
+- SLA breakdown by priority (stacked bar charts)
+- Detailed SLA records table with ticket-level data
+- SLA data is displayed independently of CSV case data — month filter applies to both
+
+---
+
+## Supported File Formats
+
+### Case CSV
+The dashboard accepts CSVs with either header format:
+
+**ServiceNow API headers:**
+```
+opened_at, number, contact, sys_created_by, priority, u_user_role, product, short_description, state, first_response_time, resolved_at, assignment_group
+```
+
+**Friendly headers:**
+```
+Opened, Number, Contact, Created by, Priority, User Role, Product, Short description, State, First Response Time, Resolved, Assignment group
+```
+
+### SLA Excel Files
+Monthly SLA reports (.xlsx) with two sheets:
+- **First Response SLA** — Contains first response SLA metrics, summary, and ticket-level detail
+- **Resolve-Workaround SLA** — Contains workaround/resolve SLA metrics, summary, and ticket-level detail
+
+Each sheet follows this structure:
+- Row 2: Customer name (col C)
+- Row 3: Month (col C, as date)
+- Row 4: SLA Metric name (col C)
+- Row 7: Total Cases (col B, format: "Total Cases: \n<count>")
+- Row 11: SLA Result (col B, format: "SLA Result: \n<pct>%")
+- Row 14: Passed count (col A: "Passed", col B: count)
+- Row 15: Failed count (col A: "Failed", col B: count)
+- Row 17: Column headers (Number, Priority, User Role, etc.)
+- Row 18+: Ticket-level SLA detail records
 
 ---
 
@@ -57,44 +98,18 @@ Once your dashboard is live on GitHub Pages, you can embed it in a Zoom Doc:
 
 1. Open your Zoom Doc
 2. Type `/embed` or click the **+** menu and select **Embed**
-3. Paste your GitHub Pages URL:
-   ```
-   https://YOUR_USERNAME.github.io/sn-cases-dashboard/
-   ```
+3. Paste your GitHub Pages URL
 4. The dashboard will render as an interactive iframe inside your Zoom Doc
-
-### Tips for Zoom Doc Embedding
-
-- The embed will be fully interactive — filters, charts, and tabs all work inside the iframe
-- You can resize the embed block by dragging its edges for a better view
-- CSV upload works within the embed — drag a file onto the upload area
-- For the best experience, make the embed block as wide as possible
 
 ---
 
 ## Updating the Dashboard Data
 
-Since this dashboard loads data via CSV upload (no data is hardcoded), you don't need to redeploy to update data. Simply:
+Since this dashboard loads data via file upload (no data is hardcoded), you don't need to redeploy to update data. Simply:
 
 1. Export a fresh CSV from ServiceNow
 2. Open the dashboard (or the Zoom Doc embed)
-3. Click **📂 Load New CSV** and upload the new file
-
----
-
-## Supported CSV Formats
-
-The dashboard accepts CSVs with either header format:
-
-**ServiceNow API headers:**
-```
-opened_at, number, contact, sys_created_by, priority, u_user_role, product, short_description, state, first_response_time, resolved_at, assignment_group
-```
-
-**Friendly headers:**
-```
-Opened, Number, Contact, Created by, Priority, User Role, Product, Short description, State, First Response Time, Resolved, Assignment group
-```
+3. Click **📂 Load New Data** and upload new files
 
 ---
 

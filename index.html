@@ -426,7 +426,7 @@
     <button class="btn btn-accent" id="btnLaunch" style="padding:10px 32px;font-size:14px;display:none;">Launch Dashboard →</button>
   </div>
   <div class="expected-cols" style="margin-top:16px;">
-    <span style="color:var(--text-muted);font-size:11px;">CSV columns: opened_at, number, contact, priority, state, etc. SLA Excel: Versant monthly SLA reports with "First Response SLA" and "Resolve-Workaround SLA" sheets.</span>
+    <span style="color:var(--text-muted);font-size:11px;">CSV columns: opened_at, number, contact, priority, state, etc. SLA Excel: Monthly SLA reports with "First Response SLA" and "Resolve-Workaround SLA" sheets.</span>
   </div>
 </div>
 
@@ -503,8 +503,28 @@
       <div class="kpi-card"><div class="value" id="slaWaPct">&mdash;</div><div class="label">Workaround SLA %</div></div>
     </div>
 
-    <div style="margin-bottom:16px;color:var(--text-muted);font-size:12px;">
-      SLA data sourced from uploaded monthly SLA Excel reports. Targets and results are as reported by the SLA system.
+    <div class="sla-targets" style="margin-bottom:20px;">
+      <div class="chart-card">
+        <h3>SLA Targets</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+          <div>
+            <h4 style="color:var(--accent);font-size:13px;margin-bottom:10px;">First Response Targets</h4>
+            <table style="font-size:13px;">
+              <tr><td style="padding:4px 12px;color:var(--text-muted);">P1 — Urgent</td><td style="padding:4px 12px;font-weight:600;">1 hour</td></tr>
+              <tr><td style="padding:4px 12px;color:var(--text-muted);">P2 — High</td><td style="padding:4px 12px;font-weight:600;">2 hours</td></tr>
+              <tr><td style="padding:4px 12px;color:var(--text-muted);">P3 — Normal</td><td style="padding:4px 12px;font-weight:600;">1 business day (24 hrs)</td></tr>
+            </table>
+          </div>
+          <div>
+            <h4 style="color:var(--accent2);font-size:13px;margin-bottom:10px;">Workaround Targets</h4>
+            <table style="font-size:13px;">
+              <tr><td style="padding:4px 12px;color:var(--text-muted);">P1 — Urgent</td><td style="padding:4px 12px;font-weight:600;">4 hours</td></tr>
+              <tr><td style="padding:4px 12px;color:var(--text-muted);">P2 — High</td><td style="padding:4px 12px;font-weight:600;">8 hours</td></tr>
+            </table>
+            <div style="color:var(--text-muted);font-size:11px;margin-top:6px;padding-left:12px;">Business hours: 8:00 AM – 5:00 PM, Mon–Fri</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="charts-grid">
@@ -514,7 +534,7 @@
     </div>
 
     <div class="table-card">
-      <h3>SLA Detail (<span id="slaTableCount">0</span> records)</h3>
+      <h3>SLA Detail — All Applicable Cases (<span id="slaTableCount">0</span>)</h3>
       <table>
         <thead>
           <tr>
@@ -576,7 +596,7 @@
     </div>
   </div>
 
-  <div class="footer">Self-contained dashboard &bull; Data loaded from CSV &bull; No server required</div>
+  <div class="footer">Self-contained dashboard &bull; Data loaded from CSV &amp; Excel &bull; No server required</div>
 </div>
 
 <script>
@@ -711,64 +731,117 @@ function parseSlaExcel(data, filename) {
 
   wb.SheetNames.forEach(function(sheetName) {
     var ws = wb.Sheets[sheetName];
-    var isFR = sheetName.toLowerCase().indexOf('first response') >= 0;
-    var isWA = sheetName.toLowerCase().indexOf('resolve') >= 0 || sheetName.toLowerCase().indexOf('workaround') >= 0;
+    var nameLower = sheetName.toLowerCase();
+    var isFR = nameLower.indexOf('first response') >= 0;
+    var isWA = nameLower.indexOf('resolve') >= 0 || nameLower.indexOf('workaround') >= 0;
     if (!isFR && !isWA) return;
 
     var slaType = isFR ? 'first_response' : 'workaround';
 
-    // Read raw data as array of arrays
-    var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd"T"HH:mm:ss' });
+    // Read raw data as array of arrays, keeping raw values for numbers
+    var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
 
-    // Extract month from row 2 (index 2), col C (index 2)
-    var monthRaw = rows[2] ? rows[2][2] : null;
+    // Helper to safely get cell value
+    function cell(r, c) {
+      if (!rows[r]) return null;
+      var v = rows[r][c];
+      return (v === undefined) ? null : v;
+    }
+
+    // Extract month from row 3 (index 2), col C (index 2)
+    var monthRaw = cell(2, 2);
     var monthLabel = '';
     if (monthRaw) {
-      var md = new Date(monthRaw);
+      // XLSX.js with cellDates may return a Date object or a serial number
+      var md;
+      if (monthRaw instanceof Date) {
+        md = monthRaw;
+      } else if (typeof monthRaw === 'number') {
+        // Excel serial date
+        md = new Date((monthRaw - 25569) * 86400000);
+      } else {
+        md = new Date(String(monthRaw));
+      }
       if (!isNaN(md)) {
-        monthLabel = md.toISOString().slice(0, 7);
+        var yyyy = md.getFullYear();
+        var mm = String(md.getMonth() + 1).padStart(2, '0');
+        monthLabel = yyyy + '-' + mm;
       }
     }
 
-    // Extract summary
-    var totalRaw = rows[6] ? String(rows[6][1] || '') : '';
-    var resultRaw = rows[10] ? String(rows[10][1] || '') : '';
-    var totalCases = parseInt(totalRaw.split('\n').pop()) || 0;
-    var slaPct = resultRaw.split('\n').pop().trim() || '0%';
-    var passedRatio = parseFloat(rows[13] ? rows[13][1] : 0) || 0;
-    var failedRatio = parseFloat(rows[14] ? rows[14][1] : 0) || 0;
+    // Extract summary info from merged cells
+    // B7 contains "Total Cases: \n<count>" and B11 contains "SLA Result: \n<pct>%"
+    var totalRaw = String(cell(6, 1) || '');
+    var resultRaw = String(cell(10, 1) || '');
+    
+    // Parse total cases - handle "Total Cases: \n3" or just "3"
+    var totalMatch = totalRaw.match(/(\d+)\s*$/);
+    var totalCases = totalMatch ? parseInt(totalMatch[1]) : 0;
+    
+    // Parse SLA result percentage - handle "SLA Result: \n100%" or just "100%"
+    var pctMatch = resultRaw.match(/(\d+(?:\.\d+)?)\s*%/);
+    var slaPct = pctMatch ? pctMatch[1] + '%' : '100%';
+    
+    // Passed/Failed counts from rows 14-15 (index 13-14)
+    var passedCount = parseFloat(cell(13, 1)) || 0;
+    var failedCount = parseFloat(cell(14, 1)) || 0;
 
     pendingSlaData.monthly_summary.push({
       month: monthLabel,
       sla_type: slaType,
       total_cases: totalCases,
       sla_pct: slaPct,
-      passed_ratio: passedRatio,
-      failed_ratio: failedRatio,
+      passed_count: passedCount,
+      failed_count: failedCount,
       source_file: filename
     });
 
-    // Extract ticket rows starting from row 17 (index 17)
-    for (var i = 17; i < rows.length; i++) {
+    // Find the header row (row 17, index 16) - look for "Number" in column B
+    var headerIdx = -1;
+    for (var h = 14; h < Math.min(rows.length, 22); h++) {
+      if (cell(h, 1) && String(cell(h, 1)).toLowerCase() === 'number') {
+        headerIdx = h;
+        break;
+      }
+    }
+    if (headerIdx < 0) headerIdx = 16; // fallback
+
+    // Extract ticket rows starting after header
+    for (var i = headerIdx + 1; i < rows.length; i++) {
       var row = rows[i];
-      if (!row || !row[1]) continue;
-      var num = String(row[1]).trim();
-      if (!num.match(/^(TS|BIL|OPE|ZPP)/)) continue;
+      if (!row) continue;
+      var num = row[1] ? String(row[1]).trim() : '';
+      if (!num || !num.match(/^[A-Z]{2,4}\d/)) continue;
+
+      // Format dates properly
+      function fmtCellDate(v) {
+        if (!v) return null;
+        if (v instanceof Date) return v.toISOString();
+        if (typeof v === 'number') return new Date((v - 25569) * 86400000).toISOString();
+        return String(v);
+      }
 
       var record = {
         month: monthLabel,
         sla_type: slaType,
         number: num,
-        priority: row[2] || '',
-        user_role: row[3] || '',
-        closed: row[5] || null,
-        created: row[6] || null,
-        response_time: row[7] || null,
-        sla_name: row[8] || '',
-        sla_duration_hrs: parseFloat(row[9]) || null,
-        actual_duration_hrs: parseFloat(row[10]) || null,
-        sla_result: row[11] || ''
+        priority: row[2] ? String(row[2]) : '',
+        user_role: row[3] ? String(row[3]) : '',
+        closed: fmtCellDate(row[5]),
+        created: fmtCellDate(row[6]),
+        response_time: fmtCellDate(row[7]),
+        sla_name: row[8] ? String(row[8]) : '',
+        sla_duration_hrs: (row[9] !== null && row[9] !== undefined) ? parseFloat(row[9]) : null,
+        actual_duration_hrs: (row[10] !== null && row[10] !== undefined) ? parseFloat(row[10]) : null,
+        sla_result: row[11] ? String(row[11]).trim() : ''
       };
+
+      // Normalize SLA result
+      if (record.sla_result.toLowerCase() === 'passed' || record.sla_result.toLowerCase() === 'met') {
+        record.sla_result = 'Passed';
+      } else if (record.sla_result.toLowerCase() === 'failed' || record.sla_result.toLowerCase() === 'breached') {
+        record.sla_result = 'Failed';
+      }
 
       if (slaType === 'first_response') {
         pendingSlaData.first_response.push(record);
@@ -997,7 +1070,11 @@ function populateFilters() {
   msState.setOptions(Array.from(new Set(allCases.map(function(c) { return c.State; }))).sort());
   msProduct.setOptions(Array.from(new Set(allCases.filter(function(c) { return c.Product; }).map(function(c) { return c.Product; }))).sort());
   msGroup.setOptions(Array.from(new Set(allCases.map(function(c) { return c['Assignment group']; }))).sort());
-  var months = Array.from(new Set(allCases.filter(function(c) { return c.month; }).map(function(c) { return c.month; }))).sort();
+  // Combine months from both CSV cases and SLA data
+  var csvMonths = allCases.filter(function(c) { return c.month; }).map(function(c) { return c.month; });
+  var slaMonths = (slaData.monthly_summary || []).map(function(s) { return s.month; }).filter(function(m) { return m; });
+  var allMonthSet = new Set(csvMonths.concat(slaMonths));
+  var months = Array.from(allMonthSet).sort();
   msMonth.setOptions(months);
 }
 
@@ -1125,10 +1202,11 @@ function renderSLA() {
   var wa = slaData.workaround || [];
   var summary = slaData.monthly_summary || [];
 
-  // Apply filters: match SLA records to filtered case numbers
-  var filteredNumbers = new Set(getFiltered().map(function(c) { return c.Number; }));
-  var frFiltered = fr.filter(function(r) { return filteredNumbers.has(r.number); });
-  var waFiltered = wa.filter(function(r) { return filteredNumbers.has(r.number); });
+  // Apply month filter to SLA data (SLA data is independent of CSV case data)
+  var selMonths = msMonth.getSelected();
+  var frFiltered = selMonths.length ? fr.filter(function(r) { return selMonths.indexOf(r.month) >= 0; }) : fr;
+  var waFiltered = selMonths.length ? wa.filter(function(r) { return selMonths.indexOf(r.month) >= 0; }) : wa;
+  var summaryFiltered = selMonths.length ? summary.filter(function(s) { return selMonths.indexOf(s.month) >= 0; }) : summary;
 
   // If no SLA data loaded, show message
   if (fr.length === 0 && wa.length === 0) {
@@ -1139,7 +1217,7 @@ function renderSLA() {
     document.getElementById('slaWaBreached').textContent = '\u2014';
     document.getElementById('slaWaPct').textContent = '\u2014';
     document.getElementById('slaTableCount').textContent = '0';
-    document.getElementById('slaTable').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:40px;">No SLA data loaded. Upload monthly SLA Excel files alongside your CSV to populate this tab.</td></tr>';
+    document.getElementById('slaTable').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px;">No SLA data loaded. Upload monthly SLA Excel files alongside your CSV to populate this tab.</td></tr>';
     // Clear charts
     ['chartSlaFrByPrio','chartSlaWaByPrio','chartSlaFrTrend'].forEach(function(id) {
       if (charts[id]) { charts[id].destroy(); delete charts[id]; }
@@ -1157,7 +1235,22 @@ function renderSLA() {
   var waPassed = waFiltered.filter(function(r) { return r.sla_result === 'Passed'; }).length;
   var waFailed = waFiltered.filter(function(r) { return r.sla_result === 'Failed'; }).length;
   var waTotal = waFiltered.length;
-  var waPct = waTotal ? ((waPassed / waTotal) * 100).toFixed(1) + '%' : '\u2014';
+  var waPct;
+  if (waTotal) {
+    waPct = ((waPassed / waTotal) * 100).toFixed(1) + '%';
+  } else {
+    // Use summary data if no individual records
+    var waSumFiltered = summaryFiltered.filter(function(s) { return s.sla_type === 'workaround'; });
+    if (waSumFiltered.length) {
+      var sumPassed = waSumFiltered.reduce(function(a, s) { return a + s.passed_count; }, 0);
+      var sumFailed = waSumFiltered.reduce(function(a, s) { return a + s.failed_count; }, 0);
+      waPassed = sumPassed;
+      waFailed = sumFailed;
+      waPct = (sumPassed + sumFailed) > 0 ? ((sumPassed / (sumPassed + sumFailed)) * 100).toFixed(1) + '%' : '100%';
+    } else {
+      waPct = '\u2014';
+    }
+  }
 
   document.getElementById('slaFrMet').textContent = frPassed;
   document.getElementById('slaFrBreached').textContent = frFailed;
@@ -1207,7 +1300,7 @@ function renderSLA() {
   // Chart: Monthly SLA % trend (from summary data)
   var frSummary = summary.filter(function(s) { return s.sla_type === 'first_response'; }).sort(function(a,b) { return a.month.localeCompare(b.month); });
   var waSummary = summary.filter(function(s) { return s.sla_type === 'workaround'; }).sort(function(a,b) { return a.month.localeCompare(b.month); });
-  var trendMonths = Array.from(new Set(summary.map(function(s) { return s.month; }))).sort();
+  var trendMonths = Array.from(new Set(summary.map(function(s) { return s.month; }).filter(function(m) { return m; }))).sort();
 
   if (trendMonths.length) {
     var frPctByMonth = trendMonths.map(function(m) {
@@ -1420,6 +1513,7 @@ function renderCaseTable() {
     '</tr>';
   }).join('');
 }
+
 </script>
 </body>
 </html>
